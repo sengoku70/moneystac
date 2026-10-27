@@ -62,7 +62,10 @@ export const initDB = async (db: SQLiteDatabase) => {
     await db.execAsync('ALTER TABLE transactions ADD COLUMN splitTotal REAL;');
   } catch {}
   try {
-    await db.execAsync('ALTER TABLE transactions ADD COLUMN splitParticipants TEXT;');
+    await db.runAsync(
+      'INSERT OR IGNORE INTO exchangers (id, name, balance, note, pinned) VALUES (?, ?, ?, ?, ?)',
+      [MYSELF_ID, 'ME', 0, null, 0]
+    );
   } catch {}
 };
 

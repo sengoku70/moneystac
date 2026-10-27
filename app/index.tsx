@@ -58,7 +58,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { updateDailyWidget, getTodayDateStr } from '../widgets/widget-sync';
+import { updateDailyWidget, updateGraphWidget, computeGraphWidgetData, getTodayDateStr } from '../widgets/widget-sync';
 import {
   addExchangerDB,
   addTransactionDB,
@@ -527,7 +527,12 @@ function MoneyStacInner() {
   // Synchronize Home Screen Widget with Today's Expenditure & Daily Budget
   useEffect(() => {
     try {
-      const myself = exchangers.find(e => e.id === 'default-myself-001' || e.name === 'ME');
+      if (!exchangers || exchangers.length === 0) return;
+
+      const myself = exchangers.find(
+        e => e.id === MYSELF_ID || e.id === 'myself' || e.name?.toUpperCase() === 'MYSELF' || e.name?.toUpperCase() === 'ME'
+      ) || exchangers[0];
+
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth();
@@ -553,6 +558,28 @@ function MoneyStacInner() {
         });
       }
 
+      // Fallback: If myself stack had 0 transactions today, check all exchangers
+      if (spentToday === 0 && txCountToday === 0 && Array.isArray(exchangers)) {
+        for (const ex of exchangers) {
+          if (Array.isArray(ex.history)) {
+            ex.history.forEach(tx => {
+              try {
+                const d = new Date(tx.date);
+                if (
+                  d.getFullYear() === currentYear &&
+                  d.getMonth() === currentMonth &&
+                  d.getDate() === currentDay &&
+                  tx.delta < 0
+                ) {
+                  spentToday += Math.abs(tx.delta);
+                  txCountToday++;
+                }
+              } catch { }
+            });
+          }
+        }
+      }
+
       const budgetNum = parseFloat(dailyBudget) || 350;
       const dateStr = getTodayDateStr(now);
 
@@ -563,22 +590,31 @@ function MoneyStacInner() {
         pendingCount: toBeLoggedList.length,
         dateStr,
       });
+
+      const graphData = computeGraphWidgetData(exchangers, now);
+      updateGraphWidget(graphData);
     } catch (e) {
-      console.log('Failed to sync daily widget:', e);
+      console.log('Failed to sync widgets:', e);
     }
   }, [exchangers, dailyBudget, toBeLoggedList]);
 
-  // Deep Link listener for Quick Add from Android Widget
+  // Deep Link listener for Quick Add and Analytics from Android Widgets
   useEffect(() => {
     const handleUrl = (event: { url: string }) => {
       if (event.url && event.url.includes('quick-add')) {
         setShowToBeLoggedModal(true);
+      }
+      if (event.url && event.url.includes('analytics')) {
+        setShowAnalytics(true);
       }
     };
 
     Linking.getInitialURL().then(url => {
       if (url && url.includes('quick-add')) {
         setShowToBeLoggedModal(true);
+      }
+      if (url && url.includes('analytics')) {
+        setShowAnalytics(true);
       }
     }).catch(() => {});
 
@@ -660,8 +696,11 @@ function MoneyStacInner() {
       audioUri: adjustAudioUri || undefined
     };
 
+    const isMyself = (e: { id?: string; name?: string }) =>
+      e.id === MYSELF_ID || e.id === 'myself' || e.name?.toUpperCase() === 'MYSELF' || e.name?.toUpperCase() === 'ME';
+
     let myselfTx: Transaction | null = null;
-    if (activeExchanger.id !== MYSELF_ID && isAdd) {
+    if (!isMyself(activeExchanger) && isAdd) {
       myselfTx = {
         id: generateId(),
         delta: -amount,
@@ -683,7 +722,7 @@ function MoneyStacInner() {
           audioUri: adjustAudioUri ? adjustAudioUri : (hasDetails ? undefined : e.audioUri),
           history: newHistory
         };
-      } else if (e.id === MYSELF_ID && myselfTx) {
+      } else if (isMyself(e) && myselfTx) {
         const pastHistory = e.history || [];
         const newHistory = hasDetails ? [myselfTx, ...pastHistory] : pastHistory;
 
@@ -709,8 +748,8 @@ function MoneyStacInner() {
       if (ex) addTransactionDB(db, newTx, activeExchanger.id, ex.balance).catch(console.error);
 
       if (myselfTx) {
-        const myselfEx = updated.find(e => e.id === MYSELF_ID);
-        if (myselfEx) addTransactionDB(db, myselfTx, MYSELF_ID, myselfEx.balance).catch(console.error);
+        const myselfEx = updated.find(isMyself);
+        if (myselfEx) addTransactionDB(db, myselfTx, myselfEx.id, myselfEx.balance).catch(console.error);
       }
     }
 
@@ -1533,8 +1572,11 @@ function MoneyStacInner() {
       audioUri: assigningItem.audioUri || undefined
     };
 
+    const isMyself = (e: { id?: string; name?: string }) =>
+      e.id === MYSELF_ID || e.id === 'myself' || e.name?.toUpperCase() === 'MYSELF' || e.name?.toUpperCase() === 'ME';
+
     let myselfTx: Transaction | null = null;
-    if (targetExchanger.id !== MYSELF_ID && isAdd) {
+    if (!isMyself(targetExchanger) && isAdd) {
       myselfTx = {
         id: generateId(),
         delta: -amount,
@@ -1554,7 +1596,7 @@ function MoneyStacInner() {
           audioUri: assigningItem.audioUri ? assigningItem.audioUri : e.audioUri,
           history: [newTx, ...pastHistory]
         };
-      } else if (e.id === MYSELF_ID && myselfTx) {
+      } else if (isMyself(e) && myselfTx) {
         const pastHistory = e.history || [];
         return {
           ...e,
@@ -1575,8 +1617,8 @@ function MoneyStacInner() {
     const ex = updated.find(e => e.id === targetExchanger.id);
     if (ex) addTransactionDB(db, newTx, targetExchanger.id, ex.balance).catch(console.error);
     if (myselfTx) {
-      const myselfEx = updated.find(e => e.id === MYSELF_ID);
-      if (myselfEx) addTransactionDB(db, myselfTx, MYSELF_ID, myselfEx.balance).catch(console.error);
+      const myselfEx = updated.find(isMyself);
+      if (myselfEx) addTransactionDB(db, myselfTx, myselfEx.id, myselfEx.balance).catch(console.error);
     }
 
     // Remove from To-Be-Logged list
@@ -1751,7 +1793,10 @@ function MoneyStacInner() {
   // Aggregate all transactions across exchangers for selected month
   const allMonthlyTransactions = useMemo(() => {
     const list: Transaction[] = [];
-    const myself = exchangers.find(e => e.id === MYSELF_ID);
+    const myself = exchangers.find(
+      e => e.id === MYSELF_ID || e.id === 'myself' || e.name?.toUpperCase() === 'MYSELF' || e.name?.toUpperCase() === 'ME'
+    ) || exchangers[0];
+
     if (myself) {
       (myself.history || []).forEach(tx => {
         try {
@@ -1766,6 +1811,25 @@ function MoneyStacInner() {
         } catch { }
       });
     }
+
+    // Fallback: If myself had no transactions this month, scan across all exchangers
+    if (list.length === 0 && Array.isArray(exchangers)) {
+      exchangers.forEach(ex => {
+        (ex.history || []).forEach(tx => {
+          try {
+            const d = new Date(tx.date);
+            if (d.getFullYear() === year && d.getMonth() === month) {
+              list.push({
+                ...tx,
+                exchangerName: ex.name,
+                exchangerId: ex.id
+              });
+            }
+          } catch { }
+        });
+      });
+    }
+
     return list;
   }, [exchangers, year, month]);
 
@@ -1830,7 +1894,10 @@ function MoneyStacInner() {
     const prevY = prevMonthDate.getFullYear();
     const prevM = prevMonthDate.getMonth();
 
-    const myself = exchangers.find(e => e.id === MYSELF_ID);
+    const myself = exchangers.find(
+      e => e.id === MYSELF_ID || e.id === 'myself' || e.name?.toUpperCase() === 'MYSELF' || e.name?.toUpperCase() === 'ME'
+    ) || exchangers[0];
+
     if (myself) {
       (myself.history || []).forEach(tx => {
         try {
@@ -1841,6 +1908,21 @@ function MoneyStacInner() {
         } catch { }
       });
     }
+
+    // Fallback: If myself had 0 previous month transactions, check all exchangers
+    if (sum === 0 && Array.isArray(exchangers)) {
+      exchangers.forEach(ex => {
+        (ex.history || []).forEach(tx => {
+          try {
+            const d = new Date(tx.date);
+            if (d.getFullYear() === prevY && d.getMonth() === prevM && tx.delta < 0) {
+              sum += Math.abs(tx.delta);
+            }
+          } catch { }
+        });
+      });
+    }
+
     return sum;
   }, [exchangers, year, month]);
 
@@ -2061,7 +2143,10 @@ function MoneyStacInner() {
                     const prevMonthDate = new Date(year, month - 1, 1);
                     const prevY = prevMonthDate.getFullYear();
                     const prevM = prevMonthDate.getMonth();
-                    const myself = exchangers.find(e => e.id === MYSELF_ID);
+                    const myself = exchangers.find(
+                      e => e.id === MYSELF_ID || e.id === 'myself' || e.name?.toUpperCase() === 'MYSELF' || e.name?.toUpperCase() === 'ME'
+                    ) || exchangers[0];
+
                     if (myself) {
                       (myself.history || []).forEach(tx => {
                         try {
@@ -2070,6 +2155,19 @@ function MoneyStacInner() {
                             prevOutflow += Math.abs(tx.delta);
                           }
                         } catch { }
+                      });
+                    }
+
+                    if (prevOutflow === 0 && Array.isArray(exchangers)) {
+                      exchangers.forEach(ex => {
+                        (ex.history || []).forEach(tx => {
+                          try {
+                            const d = new Date(tx.date);
+                            if (d.getFullYear() === prevY && d.getMonth() === prevM && d.getDate() === day && tx.delta < 0) {
+                              prevOutflow += Math.abs(tx.delta);
+                            }
+                          } catch { }
+                        });
                       });
                     }
 

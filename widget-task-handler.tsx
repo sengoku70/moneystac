@@ -1,17 +1,30 @@
 import React from 'react';
 import type { WidgetTaskHandlerProps } from 'react-native-android-widget';
 import { MoneyStacDailyWidget } from './widgets/MoneyStacDailyWidget';
-import { getCachedWidgetData } from './widgets/widget-sync';
+import { MoneyStacGraphWidget } from './widgets/MoneyStacGraphWidget';
+import {
+  getCachedGraphWidgetData,
+  getCachedWidgetData,
+} from './widgets/widget-sync';
 
 export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
-  const { widgetAction, renderWidget } = props;
+  const { widgetAction, renderWidget, widgetInfo } = props;
 
   switch (widgetAction) {
     case 'WIDGET_ADDED':
     case 'WIDGET_UPDATE':
     case 'WIDGET_RESIZED': {
-      const stats = await getCachedWidgetData();
-      renderWidget(React.createElement(MoneyStacDailyWidget, stats));
+      try {
+        if (widgetInfo?.widgetName === 'MoneyStacGraphWidget') {
+          const graphData = await getCachedGraphWidgetData();
+          renderWidget(React.createElement(MoneyStacGraphWidget, graphData));
+        } else {
+          const stats = await getCachedWidgetData();
+          renderWidget(React.createElement(MoneyStacDailyWidget, stats));
+        }
+      } catch (err) {
+        console.error('[widgetTaskHandler] Error rendering widget:', err);
+      }
       break;
     }
 
