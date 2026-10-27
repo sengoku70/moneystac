@@ -2,6 +2,9 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+or download app using this link [`drive link `](
+https://drive.google.com/file/d/1fQl0gQoSJeDV_KGlFGactpHl1lTCPaxW/view?usp=drivesdk
+)
 ## Get started
 
 1. Install dependencies
